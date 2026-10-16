@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+dist
+coverage
+*.pem
+.env*
+*.mcpb
+test-mcpb-client
+src/**/*.test.ts

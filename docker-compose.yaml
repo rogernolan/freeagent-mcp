@@ -1,0 +1,30 @@
+services:
+  freeagent-mcp:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "3000"
+    environment:
+      # Coolify: routes the domain you assign to port 3000
+      - SERVICE_FQDN_FREEAGENTMCP_3000
+      - MCP_TRANSPORT=http
+      - PORT=3000
+      - FREEAGENT_ENV=${FREEAGENT_ENV:-sandbox}
+      - FREEAGENT_CLIENT_ID=${FREEAGENT_CLIENT_ID:?}
+      - FREEAGENT_CLIENT_SECRET=${FREEAGENT_CLIENT_SECRET:?}
+      # Only read when /data/tokens.json doesn't exist yet. Get one by running `freeagent-mcp auth` locally (see README)
+      - FREEAGENT_REFRESH_TOKEN=${FREEAGENT_REFRESH_TOKEN:-}
+      - FREEAGENT_TOKEN_FILE=/data/tokens.json
+      # Clients must send `Authorization: Bearer <MCP_AUTH_TOKEN>`. Generate with `openssl rand -hex 32`
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN:?}
+    volumes:
+      - freeagent-tokens:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  freeagent-tokens:
