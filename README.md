@@ -39,7 +39,7 @@ Set `FREEAGENT_TOOLS` to a comma-separated list of tiers (`read`, `write`, `risk
 
 ### Local files
 
-`file_path` attachments can only be read from folders listed in `FREEAGENT_ATTACHMENT_DIRS`. The path must be absolute, and symlinks are resolved before the check. `invoice_pdf_get` only saves into `FREEAGENT_DOWNLOAD_DIR` and never overwrites an existing file. Both are off when unset.
+`file_path` attachments can only be read from folders listed in `FREEAGENT_ATTACHMENT_DIRS`. A relative path is looked up in each of those folders in turn, which helps clients like Cowork that see the folder under a different path. Symlinks are resolved before the check. `invoice_pdf_get` only saves into `FREEAGENT_DOWNLOAD_DIR` and never overwrites an existing file. Both are off when unset.
 
 > [!WARNING]
 > This server can create, change and delete accounting records, and `invoice_send_email` sends real email to your clients. Content Claude reads (contact names, bank transaction descriptions, attachments) could contain prompt-injection attempts. Keep tool approval on for write tools, and try things out in the sandbox first.
@@ -146,6 +146,10 @@ If the volume is ever lost, repeat steps 1 to 4.
 | `MCP_AUTH_TOKEN` | required for http | Bearer token clients must send |
 | `MCP_ALLOW_UNAUTHENTICATED` | `false` | Allow HTTP without `MCP_AUTH_TOKEN` (only behind another auth layer) |
 | `PORT` / `HOST` | `3000` / `0.0.0.0` | HTTP listen address |
+
+## Cowork skill
+
+`skills/freeagent-reconcile` is a skill for Claude (including Cowork) that reconciles FreeAgent against receipts in a local folder. It reads the unexplained transactions and the receipts, proposes explanations, receipt uploads and director expense claims, waits for your approval, makes the changes and logs them to `freeagent-log.csv` in the receipts folder. Share the same folder with Cowork that you list in `FREEAGENT_ATTACHMENT_DIRS`.
 
 ## Development
 

@@ -32,7 +32,7 @@ export const salesTaxStatus = z.enum(['TAXABLE', 'EXEMPT', 'OUT_OF_SCOPE']);
 
 export const attachment = z.object({
 	data: z.string().optional().describe('Base64-encoded file content (max 5MB)'),
-	file_path: z.string().optional().describe('Absolute path to a local file to upload instead of `data`. Must be inside a folder listed in FREEAGENT_ATTACHMENT_DIRS'),
+	file_path: z.string().optional().describe('Local file to upload instead of `data`: a path relative to the receipts folder (FREEAGENT_ATTACHMENT_DIRS), e.g. "2026-10/train.pdf", or an absolute path inside it'),
 	file_name: z.string().optional().describe('File name, e.g. receipt.pdf. Defaults to the name of file_path'),
 	content_type: z.enum(['image/png', 'image/x-png', 'image/jpeg', 'image/jpg', 'image/gif', 'application/x-pdf']).optional()
 		.describe('MIME type. Inferred from the file name if omitted'),

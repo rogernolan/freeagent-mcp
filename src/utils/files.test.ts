@@ -51,9 +51,14 @@ describe('readAllowedFile', () => {
 		await expect(readAllowedFile(join(receipts, 'link.pdf'), access, MAX)).rejects.toThrow('outside the allowed');
 	});
 
-	it('rejects relative paths, folders and oversized files', async () => {
+	it('looks up relative paths in the allowed folders', async () => {
+		await expect(readAllowedFile('2026/lunch.pdf', {attachmentDirs: [outside, receipts]}, MAX)).resolves.toEqual(PDF);
+		await expect(readAllowedFile('../outside/secret.pdf', {attachmentDirs: [receipts]}, MAX)).rejects.toThrow('outside the allowed');
+	});
+
+	it('rejects missing files, folders and oversized files', async () => {
 		const access = {attachmentDirs: [receipts]};
-		await expect(readAllowedFile('receipts/2026/lunch.pdf', access, MAX)).rejects.toThrow('absolute');
+		await expect(readAllowedFile('nope.pdf', access, MAX)).rejects.toThrow('not found in the attachment folders');
 		await expect(readAllowedFile(join(receipts, '2026'), access, MAX)).rejects.toThrow('not a regular file');
 		await expect(readAllowedFile(join(receipts, '2026', 'lunch.pdf'), access, 4)).rejects.toThrow('limit');
 	});

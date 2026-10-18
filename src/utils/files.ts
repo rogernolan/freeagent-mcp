@@ -48,12 +48,22 @@ export async function readAllowedFile(path: string, access: FileAccess, maxBytes
 		throw new Error('Uploading local files is disabled. Set FREEAGENT_ATTACHMENT_DIRS to the folder(s) holding your receipts, or send `data` instead');
 	}
 
-	if (!isAbsolute(path)) {
-		throw new Error(`file_path must be an absolute path, got: ${path}`);
+	const dirs = await realDirs(access.attachmentDirs);
+	// Relative paths are looked up in each attachment folder, for clients (like Cowork) that see the folder at another path
+	const candidates = isAbsolute(path) ? [path] : dirs.map((dir) => resolve(dir, path));
+	let real: string | undefined;
+	for (const candidate of candidates) {
+		// eslint-disable-next-line no-await-in-loop
+		real = await realpath(candidate).catch(() => undefined);
+		if (real) {
+			break;
+		}
 	}
 
-	const real = await realpath(path);
-	const dirs = await realDirs(access.attachmentDirs);
+	if (!real) {
+		throw new Error(`${path} not found${isAbsolute(path) ? '' : ` in the attachment folders (${access.attachmentDirs.join(', ')})`}`);
+	}
+
 	if (!dirs.some((dir) => isWithin(dir, real))) {
 		throw new Error(`${path} is outside the allowed attachment folders (${access.attachmentDirs.join(', ')})`);
 	}
