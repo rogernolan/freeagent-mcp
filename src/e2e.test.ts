@@ -1,10 +1,16 @@
 import {
-	describe, test, expect, vi, beforeEach,
+	mkdir, mkdtemp, readFile, realpath, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {
+	describe, test, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
 import {createServer} from './index.js';
 import {FreeAgentApi} from './utils/freeagent-api.js';
+import {resolveToolSelection} from './tools/access.js';
 
 const baseUrl = 'https://api.sandbox.freeagent.com/v2';
 
@@ -24,7 +30,7 @@ describe('MCP server (in-memory)', () => {
 			userAgent: 'test',
 			fetch: fetchFn,
 		});
-		const server = createServer({api});
+		const server = createServer({api, tools: resolveToolSelection('all')});
 		const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
 		await server.connect(serverTransport);
 		client = new Client({name: 'test', version: '0.0.0'});
@@ -160,6 +166,13 @@ describe('MCP server (in-memory)', () => {
 		expect(fetchFn).not.toHaveBeenCalled();
 	});
 
+	test('refuses to turn an attachment URL into a request on another collection', async () => {
+		const result = await client.callTool({name: 'attachment_delete', arguments: {id: `${baseUrl}/attachments/../invoices/5`}});
+
+		expect(result.isError).toBe(true);
+		expect(fetchFn).not.toHaveBeenCalled();
+	});
+
 	test('reports API errors as tool errors', async () => {
 		fetchFn.mockResolvedValueOnce(new Response('{"errors":[{"message":"Dated on is invalid"}]}', {status: 422}));
 
@@ -167,5 +180,145 @@ describe('MCP server (in-memory)', () => {
 
 		expect(result.isError).toBe(true);
 		expect(JSON.stringify(result.content)).toContain('Dated on is invalid');
+	});
+});
+
+describe('MCP server with default settings', () => {
+	const pdf = Buffer.from('%PDF-1.4\n');
+	let fetchFn: ReturnType<typeof vi.fn<typeof fetch>>;
+	let client: Client;
+	let dir: string;
+
+	beforeEach(async () => {
+		dir = await realpath(await mkdtemp(join(tmpdir(), 'freeagent-mcp-e2e-')));
+		await mkdir(join(dir, 'receipts'));
+		await mkdir(join(dir, 'downloads'));
+		await writeFile(join(dir, 'receipts', 'train.pdf'), pdf);
+
+		fetchFn = vi.fn<typeof fetch>();
+		const api = new FreeAgentApi({
+			baseUrl,
+			tokens: {getAccessToken: async () => 'token', refreshAccessToken: async () => 'token'},
+			userAgent: 'test',
+			fetch: fetchFn,
+		});
+		const server = createServer({api, files: {attachmentDirs: [join(dir, 'receipts')], downloadDir: join(dir, 'downloads')}});
+		const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+		await server.connect(serverTransport);
+		client = new Client({name: 'test', version: '0.0.0'});
+		await client.connect(clientTransport);
+	});
+
+	afterEach(async () => {
+		await rm(dir, {recursive: true, force: true});
+	});
+
+	test('hides invoice, email and delete tools', async () => {
+		const names = (await client.listTools()).tools.map((tool) => tool.name);
+
+		expect(names).toContain('bank_transaction_explanation_create');
+		expect(names).toContain('expense_create');
+		expect(names).not.toContain('invoice_create');
+		expect(names).not.toContain('invoice_send_email');
+		expect(names).not.toContain('attachment_delete');
+
+		const result = await client.callTool({name: 'invoice_send_email', arguments: {id: '9'}});
+		expect(result.isError).toBe(true);
+		expect(fetchFn).not.toHaveBeenCalled();
+	});
+
+	const attachmentBody = {attachments: [{data: pdf.toString('base64'), file_name: 'train.pdf', content_type: 'application/x-pdf'}]};
+	const savedAttachments = {attachments: [{url: `${baseUrl}/attachments/8`, file_name: 'train.pdf'}]};
+
+	function call(n: number) {
+		const [url, init] = fetchFn.mock.calls[n]!;
+		return {
+			url: (url as URL).href,
+			method: init?.method,
+			version: (init?.headers as Record<string, string>)['X-Api-Version'],
+			body: init?.body ? JSON.parse(init.body as string) as unknown : undefined,
+		};
+	}
+
+	test('adds a receipt to an existing explanation through the attachments endpoint', async () => {
+		fetchFn
+			.mockResolvedValueOnce(json(savedAttachments))
+			.mockResolvedValueOnce(json({bank_transaction_explanation: {url: `${baseUrl}/bank_transaction_explanations/3`}}));
+
+		const result = await client.callTool({
+			name: 'bank_transaction_explanation_update',
+			arguments: {id: '3', attachment: {file_path: join(dir, 'receipts', 'train.pdf')}},
+		});
+
+		expect(result.isError).toBeFalsy();
+		// No PUT when only an attachment is given
+		expect(call(0)).toEqual({
+			url: `${baseUrl}/bank_transaction_explanations/3/attachments`, method: 'POST', version: '2026-09-01', body: attachmentBody,
+		});
+		expect(call(1)).toMatchObject({url: `${baseUrl}/bank_transaction_explanations/3`, method: 'GET', version: undefined});
+		expect(result.structuredContent).toEqual({url: `${baseUrl}/bank_transaction_explanations/3`, ...savedAttachments});
+	});
+
+	test('creates an explanation, then attaches the receipt', async () => {
+		fetchFn
+			.mockResolvedValueOnce(json({bank_transaction_explanation: {url: `${baseUrl}/bank_transaction_explanations/4`}}))
+			.mockResolvedValueOnce(json(savedAttachments));
+
+		const result = await client.callTool({
+			name: 'bank_transaction_explanation_create',
+			arguments: {bank_transaction: '77', category: '285', attachment: {file_path: join(dir, 'receipts', 'train.pdf')}},
+		});
+
+		expect(result.isError).toBeFalsy();
+		expect(call(0)).toEqual({
+			url: `${baseUrl}/bank_transaction_explanations`,
+			method: 'POST',
+			version: undefined,
+			body: {bank_transaction_explanation: {bank_transaction: `${baseUrl}/bank_transactions/77`, category: `${baseUrl}/categories/285`}},
+		});
+		expect(call(1)).toMatchObject({url: `${baseUrl}/bank_transaction_explanations/4/attachments`, version: '2026-09-01', body: attachmentBody});
+		expect(result.structuredContent).toEqual({url: `${baseUrl}/bank_transaction_explanations/4`, ...savedAttachments});
+	});
+
+	test('says the explanation was saved when attaching fails', async () => {
+		fetchFn
+			.mockResolvedValueOnce(json({bank_transaction_explanation: {url: `${baseUrl}/bank_transaction_explanations/4`}}))
+			.mockResolvedValueOnce(new Response('{"errors":{"error":{"message":"Too many attachments"}}}', {status: 422}));
+
+		const result = await client.callTool({
+			name: 'bank_transaction_explanation_create',
+			arguments: {bank_transaction: '77', category: '285', attachment: {file_path: join(dir, 'receipts', 'train.pdf')}},
+		});
+
+		expect(result.isError).toBe(true);
+		const text = JSON.stringify(result.content);
+		expect(text).toContain('bank_transaction_explanations/4 was saved');
+		expect(text).toContain('Too many attachments');
+	});
+
+	test('will not upload files outside the attachment folders', async () => {
+		await writeFile(join(dir, 'other.pdf'), pdf);
+
+		const result = await client.callTool({
+			name: 'bank_transaction_explanation_create',
+			arguments: {bank_transaction: '77', category: '285', attachment: {file_path: join(dir, 'other.pdf')}},
+		});
+
+		expect(result.isError).toBe(true);
+		expect(fetchFn).not.toHaveBeenCalled();
+	});
+
+	test('saves invoice PDFs only inside the download folder, without overwriting', async () => {
+		fetchFn.mockImplementation(async () => json({pdf: {content: pdf.toString('base64')}}));
+
+		const saved = await client.callTool({name: 'invoice_pdf_get', arguments: {id: '9', save_to: 'INV-9.pdf'}});
+		expect(saved.isError).toBeFalsy();
+		await expect(readFile(join(dir, 'downloads', 'INV-9.pdf'))).resolves.toEqual(pdf);
+
+		const again = await client.callTool({name: 'invoice_pdf_get', arguments: {id: '9', save_to: 'INV-9.pdf'}});
+		expect(again.isError).toBe(true);
+
+		const outside = await client.callTool({name: 'invoice_pdf_get', arguments: {id: '9', save_to: join(dir, 'x.pdf')}});
+		expect(outside.isError).toBe(true);
 	});
 });

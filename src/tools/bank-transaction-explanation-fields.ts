@@ -1,8 +1,11 @@
 import {z} from 'zod';
+import type {Config} from './types.js';
 import type {FreeAgentApi} from '../utils/freeagent-api.js';
-import {compact, optionalRef} from '../utils/tools.js';
 import {
-	date, money, ref, salesTaxStatus,
+	type AttachmentInput, buildAttachment, compact, optionalRef,
+} from '../utils/tools.js';
+import {
+	attachment, date, money, ref, salesTaxStatus,
 } from './schemas.js';
 
 export const explanationFields = {
@@ -20,7 +23,11 @@ export const explanationFields = {
 	sales_tax_value: money.optional().describe('VAT amount, overriding the calculated value'),
 	foreign_currency_value: money.optional().describe('Amount in the invoice/bill currency, when paying a foreign-currency invoice or bill'),
 	project: ref('Project').optional(),
+	attachment: attachment.optional().describe('Receipt or invoice to add to the explanation\'s attachments. Provide either `data` (base64) or `file_path`'),
 };
+
+/** Explanation attachments have their own endpoint from this API version; the old inline `attachment` field goes away on 2026-12-01 */
+const ATTACHMENTS_API_VERSION = '2026-09-01';
 
 type ExplanationInput = {
 	[key: string]: unknown;
@@ -46,4 +53,19 @@ export function explanationBody(api: FreeAgentApi, {
 		project: optionalRef(api, 'projects', project),
 		...extra_fields,
 	});
+}
+
+/** Build the attachment up front, so a bad file fails before anything is written to FreeAgent */
+export async function prepareAttachment({files}: Config, file: AttachmentInput | undefined) {
+	return file && buildAttachment(file, files);
+}
+
+/** Add an attachment to an explanation, returning the explanation's full attachment list */
+export async function addAttachment(api: FreeAgentApi, explanationUrl: string, file: Awaited<ReturnType<typeof buildAttachment>>) {
+	try {
+		const {data} = await api.post<{attachments?: unknown[]}>(`${explanationUrl}/attachments`, {attachments: [file]}, {'X-Api-Version': ATTACHMENTS_API_VERSION});
+		return data.attachments ?? [];
+	} catch (err) {
+		throw new Error(`The explanation ${explanationUrl} was saved, but attaching ${file.file_name} failed: ${err instanceof Error ? err.message : String(err)}`);
+	}
 }

@@ -23,6 +23,23 @@ Some things to know about the tools:
 - **Expense signs:** `gross_value` on expenses is **negative** when the claimant paid.
 - **Explanation signs:** `gross_value` on bank explanations has the same sign as the bank transaction.
 - **Other fields:** create and update tools accept an `extra_fields` object for less common FreeAgent attributes; see the [API docs](https://dev.freeagent.com/docs/index).
+- **Attachments:** expenses, bills and bank transaction explanations take an `attachment` (a receipt or invoice). Use `bank_transaction_explanation_update` to add a receipt to a transaction that's already explained. Explanation receipts go through FreeAgent's attachments endpoint (API version `2026-09-01`), which replaces the inline `attachment` field from 1 December 2026. If the explanation saves but the upload fails, the error says so. Attachments must really be a PDF, PNG, JPEG or GIF.
+
+### Which tools are enabled
+
+Tools are grouped into three tiers. By default only `read` and `write` are enabled:
+
+| Tier | Tools |
+|---|---|
+| `read` | Every `_get` and `_list` tool, plus the reports. `invoice_pdf_get` can also save into `FREEAGENT_DOWNLOAD_DIR` |
+| `write` | `expense_create`/`_update`, `bank_transaction_explanation_create`/`_update`, `bill_create`/`_update`, `contact_create`/`_update` |
+| `risky` | `invoice_create`, `invoice_update`, `invoice_transition`, `invoice_send_email`, and every `_delete` tool |
+
+Set `FREEAGENT_TOOLS` to a comma-separated list of tiers (`read`, `write`, `risky`, `all`) and tool names. Prefix an entry with `-` to remove it. For example, `read` gives a read-only server, and `read,write,invoice_create` adds draft invoices without email or deletes. Unknown names stop the server from starting.
+
+### Local files
+
+`file_path` attachments can only be read from folders listed in `FREEAGENT_ATTACHMENT_DIRS`. A relative path is looked up in each of those folders in turn, which helps clients like Cowork that see the folder under a different path. Symlinks are resolved before the check. `invoice_pdf_get` only saves into `FREEAGENT_DOWNLOAD_DIR` and never overwrites an existing file. Both are off when unset.
 
 > [!WARNING]
 > This server can create, change and delete accounting records, and `invoice_send_email` sends real email to your clients. Content Claude reads (contact names, bank transaction descriptions, attachments) could contain prompt-injection attempts. Keep tool approval on for write tools, and try things out in the sandbox first.
@@ -53,10 +70,41 @@ claude mcp add freeagent \
   -e FREEAGENT_CLIENT_ID=... \
   -e FREEAGENT_CLIENT_SECRET=... \
   -e FREEAGENT_ENV=sandbox \
+  -e FREEAGENT_ATTACHMENT_DIRS="$HOME/Documents/Receipts" \
   -- node /path/to/freeagent-mcp/dist/main.js
 ```
 
 Claude Desktop uses the same `command`, `args` and `env` in `claude_desktop_config.json`.
+
+### Keeping the client secret in the macOS Keychain
+
+The setup above puts `FREEAGENT_CLIENT_SECRET` in the MCP config file in plain text. On macOS you can keep it in the Keychain instead, and start the server with `scripts/freeagent-mcp-keychain`. It reads the secret when the server starts, passes any arguments through (so `auth` works too), and finds Node even when a desktop app starts it with a minimal `PATH`.
+
+1. Store the secret. This prompts for it, so it stays out of your shell history. `-U` replaces an existing item, for example after you rotate the secret:
+   ```sh
+   security add-generic-password -U -a "$USER" -s freeagent-mcp-client-secret -w
+   ```
+2. Connect your account:
+   ```sh
+   FREEAGENT_CLIENT_ID=... FREEAGENT_ENV=sandbox scripts/freeagent-mcp-keychain auth
+   ```
+3. Point your MCP client at the script, with no secret in the config. For Claude Desktop and Cowork, in `claude_desktop_config.json`:
+   ```json
+   {
+     "mcpServers": {
+       "freeagent": {
+         "command": "/path/to/freeagent-mcp/scripts/freeagent-mcp-keychain",
+         "env": {
+           "FREEAGENT_CLIENT_ID": "...",
+           "FREEAGENT_ENV": "sandbox",
+           "FREEAGENT_ATTACHMENT_DIRS": "/Users/you/Documents/Receipts"
+         }
+       }
+     }
+   }
+   ```
+
+Set `FREEAGENT_KEYCHAIN_SERVICE` to use a different Keychain item name, or `FREEAGENT_NODE` if Node isn't in `/opt/homebrew/bin` or `/usr/local/bin`.
 
 ## Remote / Docker (Coolify)
 
@@ -91,10 +139,17 @@ If the volume is ever lost, repeat steps 1 to 4.
 | `FREEAGENT_REFRESH_TOKEN` | – | Seed token used only when the token file doesn't exist |
 | `FREEAGENT_REDIRECT_PORT` | `8976` | Local port for the `auth` callback |
 | `FREEAGENT_BASE_URL` | – | Override the API base URL |
+| `FREEAGENT_TOOLS` | `read,write` | Tiers and tool names to enable (see above) |
+| `FREEAGENT_ATTACHMENT_DIRS` | – | Colon-separated absolute folders that `file_path` attachments may be read from |
+| `FREEAGENT_DOWNLOAD_DIR` | – | Absolute folder that `invoice_pdf_get` may save PDFs into |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `MCP_AUTH_TOKEN` | required for http | Bearer token clients must send |
 | `MCP_ALLOW_UNAUTHENTICATED` | `false` | Allow HTTP without `MCP_AUTH_TOKEN` (only behind another auth layer) |
 | `PORT` / `HOST` | `3000` / `0.0.0.0` | HTTP listen address |
+
+## Cowork skill
+
+`skills/freeagent-reconcile` is a skill for Claude (including Cowork) that reconciles FreeAgent against receipts in a local folder. It reads the unexplained transactions and the receipts, proposes explanations, receipt uploads and director expense claims, waits for your approval, makes the changes and logs them to `freeagent-log.csv` in the receipts folder. Share the same folder with Cowork that you list in `FREEAGENT_ATTACHMENT_DIRS`.
 
 ## Development
 

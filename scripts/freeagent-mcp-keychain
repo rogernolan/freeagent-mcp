@@ -1,0 +1,36 @@
+#!/bin/sh
+# Starts freeagent-mcp with FREEAGENT_CLIENT_SECRET read from the macOS Keychain, so the secret
+# never has to sit in an MCP client config file. Arguments are passed through, e.g. `auth`.
+#
+# Store (or replace, with -U) the secret first:
+#   security add-generic-password -U -a "$USER" -s freeagent-mcp-client-secret -w
+set -eu
+
+service="${FREEAGENT_KEYCHAIN_SERVICE:-freeagent-mcp-client-secret}"
+
+if [ -z "${FREEAGENT_CLIENT_SECRET:-}" ]; then
+	if ! FREEAGENT_CLIENT_SECRET="$(/usr/bin/security find-generic-password -s "$service" -w 2>/dev/null)"; then
+		echo "freeagent-mcp: No Keychain item \"$service\". Add it with: security add-generic-password -U -a \"\$USER\" -s $service -w" >&2
+		exit 1
+	fi
+	export FREEAGENT_CLIENT_SECRET
+fi
+
+# Desktop apps start MCP servers with a minimal PATH, so look in the usual Node install locations too
+node="${FREEAGENT_NODE:-}"
+if [ -z "$node" ]; then
+	for candidate in "$(command -v node 2>/dev/null || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
+		if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+			node="$candidate"
+			break
+		fi
+	done
+fi
+
+if [ -z "$node" ]; then
+	echo 'freeagent-mcp: Could not find node. Set FREEAGENT_NODE to its full path' >&2
+	exit 1
+fi
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$node" "$root/dist/main.js" "$@"

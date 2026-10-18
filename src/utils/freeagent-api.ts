@@ -29,6 +29,8 @@ export const FREEAGENT_BASE_URLS = {
 // Don't stall a tool call for longer than this waiting out a rate limit
 const MAX_RETRY_AFTER_SECONDS = 60;
 
+const RESOURCE_ID = /^(?!\.{1,2}$)[\w.-]+$/;
+
 export class FreeAgentApi {
 	readonly baseUrl: string;
 	private readonly fetchFn: typeof fetch;
@@ -49,27 +51,30 @@ export class FreeAgentApi {
 	resourceUrl(collection: string, idOrUrl: string): string {
 		const value = idOrUrl.trim();
 		const prefix = `${this.baseUrl}/${collection}/`;
+		let id = value;
 		if (/^https?:\/\//i.test(value)) {
-			if (!value.startsWith(prefix) || value.length === prefix.length) {
+			if (!value.startsWith(prefix)) {
 				throw new Error(`Expected a FreeAgent ${collection} URL starting with ${prefix}, got: ${value}`);
 			}
 
-			return value;
+			id = value.slice(prefix.length);
 		}
 
-		if (!/^[\w.-]+$/.test(value)) {
-			throw new Error(`Invalid FreeAgent ${collection} ID: ${value}`);
+		// One plain path segment: no slashes, %-escapes, query strings or dot segments, which the URL parser would
+		// resolve into a different collection (e.g. attachments/../invoices/5)
+		if (!RESOURCE_ID.test(id)) {
+			throw new Error(`Invalid FreeAgent ${collection} ID or URL: ${value}`);
 		}
 
-		return prefix + value;
+		return prefix + id;
 	}
 
 	async get<T>(path: string, query?: Query): Promise<ApiResponse<T>> {
 		return this.request<T>('GET', path, query === undefined ? {} : {query});
 	}
 
-	async post<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
-		return this.request<T>('POST', path, {body});
+	async post<T>(path: string, body?: unknown, headers?: Record<string, string>): Promise<ApiResponse<T>> {
+		return this.request<T>('POST', path, headers === undefined ? {body} : {body, headers});
 	}
 
 	async put<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
@@ -81,25 +86,30 @@ export class FreeAgentApi {
 	}
 
 	/** `path` is relative to the base URL (e.g. '/invoices'), or a full resource URL from resourceUrl() */
-	async request<T>(method: HttpMethod, path: string, options: {query?: Query; body?: unknown} = {}): Promise<ApiResponse<T>> {
+	async request<T>(method: HttpMethod, path: string, options: {query?: Query; body?: unknown; headers?: Record<string, string>} = {}): Promise<ApiResponse<T>> {
 		const url = new URL(path.startsWith(`${this.baseUrl}/`) ? path : `${this.baseUrl}${path}`);
+		const base = new URL(this.baseUrl);
+		if (url.origin !== base.origin || !url.pathname.startsWith(`${base.pathname.replace(/\/+$/, '')}/`)) {
+			throw new Error(`Refusing to call ${url.origin}${url.pathname}: outside the FreeAgent API at ${this.baseUrl}`);
+		}
+
 		for (const [key, value] of Object.entries(options.query ?? {})) {
 			if (value !== undefined) {
 				url.searchParams.set(key, String(value));
 			}
 		}
 
-		let response = await this.send(method, url, options.body, await this.options.tokens.getAccessToken());
+		let response = await this.send(method, url, options, await this.options.tokens.getAccessToken());
 
 		if (response.status === 401) {
-			response = await this.send(method, url, options.body, await this.options.tokens.refreshAccessToken());
+			response = await this.send(method, url, options, await this.options.tokens.refreshAccessToken());
 		}
 
 		if (response.status === 429) {
 			const retryAfter = Number(response.headers.get('retry-after') ?? '');
 			if (Number.isFinite(retryAfter) && retryAfter <= MAX_RETRY_AFTER_SECONDS) {
 				await this.sleep(Math.max(retryAfter, 1) * 1000);
-				response = await this.send(method, url, options.body, await this.options.tokens.getAccessToken());
+				response = await this.send(method, url, options, await this.options.tokens.getAccessToken());
 			}
 		}
 
@@ -111,10 +121,11 @@ export class FreeAgentApi {
 		return {data: parseBody(text) as T, headers: response.headers};
 	}
 
-	private async send(method: HttpMethod, url: URL, body: unknown, accessToken: string): Promise<Response> {
+	private async send(method: HttpMethod, url: URL, {body, headers}: {body?: unknown; headers?: Record<string, string>}, accessToken: string): Promise<Response> {
 		return this.fetchFn(url, {
 			method,
 			headers: {
+				...headers,
 				Authorization: `Bearer ${accessToken}`,
 				Accept: 'application/json',
 				'User-Agent': this.options.userAgent,

@@ -23,7 +23,7 @@ export function registerExpenseUpdate(server: McpServer, config: Config): void {
 		},
 		async ({id, ...input}) => {
 			const url = config.api.resourceUrl('expenses', id);
-			await config.api.put(url, {expense: await expenseBody(config.api, input)});
+			await config.api.put(url, {expense: await expenseBody(config, input)});
 			return getResource(config.api, url, 'expense');
 		},
 	);

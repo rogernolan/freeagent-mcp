@@ -3,6 +3,8 @@ import {join} from 'node:path';
 import {FREEAGENT_BASE_URLS, FreeAgentApi} from './utils/freeagent-api.js';
 import {TokenStore} from './auth/token-store.js';
 import {version} from './index.js';
+import {type FileAccess, parseDirList} from './utils/files.js';
+import {resolveToolSelection} from './tools/access.js';
 
 export type Env = Record<string, string | undefined>;
 
@@ -35,6 +37,17 @@ export function loadSettings(env: Env = process.env): FreeAgentSettings {
 		clientId: required(env, 'FREEAGENT_CLIENT_ID'),
 		clientSecret: required(env, 'FREEAGENT_CLIENT_SECRET'),
 		tokenFile: env.FREEAGENT_TOKEN_FILE ?? join(homedir(), '.config', 'freeagent-mcp', `tokens.${environment}.json`),
+	};
+}
+
+/** Which tools to expose and which local folders they may use */
+export function loadServerOptions(env: Env = process.env): {tools: Set<string>; files: FileAccess} {
+	return {
+		tools: resolveToolSelection(env.FREEAGENT_TOOLS),
+		files: {
+			attachmentDirs: parseDirList(env.FREEAGENT_ATTACHMENT_DIRS, 'FREEAGENT_ATTACHMENT_DIRS'),
+			downloadDir: parseDirList(env.FREEAGENT_DOWNLOAD_DIR, 'FREEAGENT_DOWNLOAD_DIR')[0],
+		},
 	};
 }
 
