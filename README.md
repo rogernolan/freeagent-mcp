@@ -76,6 +76,36 @@ claude mcp add freeagent \
 
 Claude Desktop uses the same `command`, `args` and `env` in `claude_desktop_config.json`.
 
+### Keeping the client secret in the macOS Keychain
+
+The setup above puts `FREEAGENT_CLIENT_SECRET` in the MCP config file in plain text. On macOS you can keep it in the Keychain instead, and start the server with `scripts/freeagent-mcp-keychain`. It reads the secret when the server starts, passes any arguments through (so `auth` works too), and finds Node even when a desktop app starts it with a minimal `PATH`.
+
+1. Store the secret. This prompts for it, so it stays out of your shell history. `-U` replaces an existing item, for example after you rotate the secret:
+   ```sh
+   security add-generic-password -U -a "$USER" -s freeagent-mcp-client-secret -w
+   ```
+2. Connect your account:
+   ```sh
+   FREEAGENT_CLIENT_ID=... FREEAGENT_ENV=sandbox scripts/freeagent-mcp-keychain auth
+   ```
+3. Point your MCP client at the script, with no secret in the config. For Claude Desktop and Cowork, in `claude_desktop_config.json`:
+   ```json
+   {
+     "mcpServers": {
+       "freeagent": {
+         "command": "/path/to/freeagent-mcp/scripts/freeagent-mcp-keychain",
+         "env": {
+           "FREEAGENT_CLIENT_ID": "...",
+           "FREEAGENT_ENV": "sandbox",
+           "FREEAGENT_ATTACHMENT_DIRS": "/Users/you/Documents/Receipts"
+         }
+       }
+     }
+   }
+   ```
+
+Set `FREEAGENT_KEYCHAIN_SERVICE` to use a different Keychain item name, or `FREEAGENT_NODE` if Node isn't in `/opt/homebrew/bin` or `/usr/local/bin`.
+
 ## Remote / Docker (Coolify)
 
 The Docker image runs the HTTP transport on port 3000, with bearer-token auth on `/mcp` and a `/health` endpoint. Tokens live on a `/data` volume.
