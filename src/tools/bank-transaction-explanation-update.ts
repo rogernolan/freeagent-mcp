@@ -9,7 +9,8 @@ export function registerBankTransactionExplanationUpdate(server: McpServer, conf
 		'bank_transaction_explanation_update',
 		{
 			title: 'Update bank transaction explanation',
-			description: 'Change how a bank transaction is explained, e.g. recategorise it. Only the fields you pass are changed',
+			description: 'Change how a bank transaction is explained, e.g. recategorise it or attach a receipt to an already-explained transaction. '
+				+ 'Only the fields you pass are changed',
 			inputSchema: {
 				...idInput('Bank transaction explanation'),
 				...explanationFields,
@@ -20,7 +21,7 @@ export function registerBankTransactionExplanationUpdate(server: McpServer, conf
 		},
 		async ({id, ...input}) => {
 			const url = config.api.resourceUrl('bank_transaction_explanations', id);
-			await config.api.put(url, {bank_transaction_explanation: explanationBody(config.api, input)});
+			await config.api.put(url, {bank_transaction_explanation: await explanationBody(config, input)});
 			return getResource(config.api, url, 'bank_transaction_explanation');
 		},
 	);

@@ -23,6 +23,23 @@ Some things to know about the tools:
 - **Expense signs:** `gross_value` on expenses is **negative** when the claimant paid.
 - **Explanation signs:** `gross_value` on bank explanations has the same sign as the bank transaction.
 - **Other fields:** create and update tools accept an `extra_fields` object for less common FreeAgent attributes; see the [API docs](https://dev.freeagent.com/docs/index).
+- **Attachments:** expenses, bills and bank transaction explanations take an `attachment` (a receipt or invoice). Use `bank_transaction_explanation_update` to attach a receipt to a transaction that's already explained. Attachments must really be a PDF, PNG, JPEG or GIF.
+
+### Which tools are enabled
+
+Tools are grouped into three tiers. By default only `read` and `write` are enabled:
+
+| Tier | Tools |
+|---|---|
+| `read` | Every `_get` and `_list` tool, plus the reports. `invoice_pdf_get` can also save into `FREEAGENT_DOWNLOAD_DIR` |
+| `write` | `expense_create`/`_update`, `bank_transaction_explanation_create`/`_update`, `bill_create`/`_update`, `contact_create`/`_update` |
+| `risky` | `invoice_create`, `invoice_update`, `invoice_transition`, `invoice_send_email`, and every `_delete` tool |
+
+Set `FREEAGENT_TOOLS` to a comma-separated list of tiers (`read`, `write`, `risky`, `all`) and tool names. Prefix an entry with `-` to remove it. For example, `read` gives a read-only server, and `read,write,invoice_create` adds draft invoices without email or deletes. Unknown names stop the server from starting.
+
+### Local files
+
+`file_path` attachments can only be read from folders listed in `FREEAGENT_ATTACHMENT_DIRS`. The path must be absolute, and symlinks are resolved before the check. `invoice_pdf_get` only saves into `FREEAGENT_DOWNLOAD_DIR` and never overwrites an existing file. Both are off when unset.
 
 > [!WARNING]
 > This server can create, change and delete accounting records, and `invoice_send_email` sends real email to your clients. Content Claude reads (contact names, bank transaction descriptions, attachments) could contain prompt-injection attempts. Keep tool approval on for write tools, and try things out in the sandbox first.
@@ -53,6 +70,7 @@ claude mcp add freeagent \
   -e FREEAGENT_CLIENT_ID=... \
   -e FREEAGENT_CLIENT_SECRET=... \
   -e FREEAGENT_ENV=sandbox \
+  -e FREEAGENT_ATTACHMENT_DIRS="$HOME/Documents/Receipts" \
   -- node /path/to/freeagent-mcp/dist/main.js
 ```
 
@@ -91,6 +109,9 @@ If the volume is ever lost, repeat steps 1 to 4.
 | `FREEAGENT_REFRESH_TOKEN` | – | Seed token used only when the token file doesn't exist |
 | `FREEAGENT_REDIRECT_PORT` | `8976` | Local port for the `auth` callback |
 | `FREEAGENT_BASE_URL` | – | Override the API base URL |
+| `FREEAGENT_TOOLS` | `read,write` | Tiers and tool names to enable (see above) |
+| `FREEAGENT_ATTACHMENT_DIRS` | – | Colon-separated absolute folders that `file_path` attachments may be read from |
+| `FREEAGENT_DOWNLOAD_DIR` | – | Absolute folder that `invoice_pdf_get` may save PDFs into |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `MCP_AUTH_TOKEN` | required for http | Bearer token clients must send |
 | `MCP_ALLOW_UNAUTHENTICATED` | `false` | Allow HTTP without `MCP_AUTH_TOKEN` (only behind another auth layer) |

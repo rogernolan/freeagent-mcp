@@ -17,7 +17,7 @@ export function registerExpenseCreate(server: McpServer, config: Config): void {
 		},
 		async (input) => {
 			const user = input.user ?? (await config.api.get<{user: {url: string}}>('/users/me')).data.user.url;
-			const expense = await expenseBody(config.api, {...input, user});
+			const expense = await expenseBody(config, {...input, user});
 			const {data} = await config.api.post<Record<string, unknown>>('/expenses', {expense});
 			return unwrap(data, 'expense');
 		},

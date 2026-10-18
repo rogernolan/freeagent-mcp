@@ -5,7 +5,7 @@ import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/st
 import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
 import express, {type RequestHandler} from 'express';
 import {createServer} from './index.js';
-import {createApi, loadSettings} from './config.js';
+import {createApi, loadServerOptions, loadSettings} from './config.js';
 import {runAuthFlow} from './auth/oauth-cli.js';
 
 function setupSignalHandlers(cleanup: () => Promise<void>): void {
@@ -46,9 +46,11 @@ const transport = process.env.MCP_TRANSPORT || 'stdio';
 
 	// One API client (and token store) shared by every server instance, so token refreshes aren't duplicated
 	const api = createApi(loadSettings());
+	const options = loadServerOptions();
+	console.error(`FreeAgent tools enabled: ${options.tools.size}. Attachment folders: ${options.files.attachmentDirs.join(', ') || 'none'}`);
 
 	if (transport === 'stdio') {
-		const server = createServer({api});
+		const server = createServer({api, ...options});
 		setupSignalHandlers(async () => server.close());
 
 		const stdioTransport = new StdioServerTransport();
@@ -75,7 +77,7 @@ const transport = process.env.MCP_TRANSPORT || 'stdio';
 
 		// Stateless: fresh server + transport per request — sharing either misroutes responses on concurrent requests with colliding JSON-RPC IDs (GHSA-345p-7cg4-v4c7).
 		app.post('/mcp', async (req, res) => {
-			const server = createServer({api});
+			const server = createServer({api, ...options});
 			const httpTransport = new StreamableHTTPServerTransport({
 				enableJsonResponse: true,
 			});

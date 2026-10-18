@@ -1,5 +1,6 @@
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import type {Config} from './types.js';
+import {resolveToolSelection, TOOL_TIERS} from './access.js';
 import {registerCompanyGet} from './company-get.js';
 import {registerCompanyTaxTimelineGet} from './company-tax-timeline-get.js';
 import {registerUserMeGet} from './user-me-get.js';
@@ -47,8 +48,26 @@ import {registerTrialBalanceGet} from './trial-balance-get.js';
 import {registerCashflowGet} from './cashflow-get.js';
 
 export type {Config} from './types.js';
+export {resolveToolSelection, TOOL_TIERS, type ToolTier} from './access.js';
 
-export function registerAll(server: McpServer, config: Config): void {
+/** Wraps the server so registerTool only registers enabled tools, and refuses tools without a tier */
+function gate(server: McpServer, enabled: ReadonlySet<string>): McpServer {
+	const registerTool = ((name: string, ...rest: unknown[]) => {
+		if (!(name in TOOL_TIERS)) {
+			throw new Error(`Tool ${name} has no entry in TOOL_TIERS (src/tools/access.ts)`);
+		}
+
+		return enabled.has(name)
+			? (server.registerTool as (...args: unknown[]) => unknown)(name, ...rest)
+			: undefined;
+	}) as McpServer['registerTool'];
+	return new Proxy(server, {
+		get: (target, prop, receiver) => (prop === 'registerTool' ? registerTool : Reflect.get(target, prop, receiver) as unknown),
+	});
+}
+
+export function registerAll(mcpServer: McpServer, config: Config): void {
+	const server = gate(mcpServer, config.tools ?? resolveToolSelection());
 	registerCompanyGet(server, config);
 	registerCompanyTaxTimelineGet(server, config);
 	registerUserMeGet(server, config);

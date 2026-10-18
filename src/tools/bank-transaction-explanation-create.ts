@@ -14,7 +14,8 @@ export function registerBankTransactionExplanationCreate(server: McpServer, conf
 			description: 'Reconcile a bank transaction by explaining what it was. Set exactly one of: '
 				+ 'category (ordinary income/spending), paid_invoice (client paid an invoice), paid_bill (you paid a supplier bill), '
 				+ 'transfer_bank_account (moved money between your accounts) or paid_user (payment to/from a director or employee). '
-				+ 'Split a transaction by creating several explanations whose gross_values add up to the total',
+				+ 'Split a transaction by creating several explanations whose gross_values add up to the total. '
+				+ 'Attach the receipt with `attachment`',
 			inputSchema: {
 				bank_transaction: ref('Bank transaction').optional().describe('The transaction to explain (ID or URL)'),
 				bank_account: ref('Bank account').optional().describe('Instead of bank_transaction: create a new manual transaction on this account along with its explanation'),
@@ -34,7 +35,7 @@ export function registerBankTransactionExplanationCreate(server: McpServer, conf
 					bank_transaction: optionalRef(config.api, 'bank_transactions', bank_transaction),
 					bank_account: optionalRef(config.api, 'bank_accounts', bank_account),
 				}),
-				...explanationBody(config.api, input),
+				...await explanationBody(config, input),
 			};
 			const {data} = await config.api.post<Record<string, unknown>>('/bank_transaction_explanations', {bank_transaction_explanation: explanation});
 			return unwrap(data, 'bank_transaction_explanation');

@@ -1,8 +1,8 @@
 import {z} from 'zod';
-import type {FreeAgentApi} from '../utils/freeagent-api.js';
-import {compact, optionalRef} from '../utils/tools.js';
+import type {Config} from './types.js';
+import {buildAttachment, compact, optionalRef} from '../utils/tools.js';
 import {
-	date, money, ref, salesTaxStatus,
+	attachment, date, money, ref, salesTaxStatus,
 } from './schemas.js';
 
 export const explanationFields = {
@@ -20,6 +20,7 @@ export const explanationFields = {
 	sales_tax_value: money.optional().describe('VAT amount, overriding the calculated value'),
 	foreign_currency_value: money.optional().describe('Amount in the invoice/bill currency, when paying a foreign-currency invoice or bill'),
 	project: ref('Project').optional(),
+	attachment: attachment.optional().describe('Receipt or invoice to attach. Provide either `data` (base64) or `file_path`'),
 };
 
 type ExplanationInput = {
@@ -30,11 +31,12 @@ type ExplanationInput = {
 	transfer_bank_account?: string | undefined;
 	paid_user?: string | undefined;
 	project?: string | undefined;
+	attachment?: Parameters<typeof buildAttachment>[0] | undefined;
 	extra_fields?: Record<string, unknown> | undefined;
 };
 
-export function explanationBody(api: FreeAgentApi, {
-	category, paid_invoice, paid_bill, transfer_bank_account, paid_user, project, extra_fields, ...fields
+export async function explanationBody({api, files}: Config, {
+	category, paid_invoice, paid_bill, transfer_bank_account, paid_user, project, attachment: file, extra_fields, ...fields
 }: ExplanationInput) {
 	return compact({
 		...fields,
@@ -44,6 +46,7 @@ export function explanationBody(api: FreeAgentApi, {
 		transfer_bank_account: optionalRef(api, 'bank_accounts', transfer_bank_account),
 		paid_user: optionalRef(api, 'users', paid_user),
 		project: optionalRef(api, 'projects', project),
+		attachment: file && await buildAttachment(file, files),
 		...extra_fields,
 	});
 }

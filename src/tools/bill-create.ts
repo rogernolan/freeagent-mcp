@@ -22,7 +22,7 @@ export function registerBillCreate(server: McpServer, config: Config): void {
 				...fields,
 				contact: config.api.resourceUrl('contacts', contact),
 				bill_items: billItemsBody(config.api, bill_items),
-				attachment: attachment && await buildAttachment(attachment),
+				attachment: attachment && await buildAttachment(attachment, config.files),
 				...extra_fields,
 			});
 			const {data} = await config.api.post<Record<string, unknown>>('/bills', {bill});

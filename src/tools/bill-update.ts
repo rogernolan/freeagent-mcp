@@ -33,7 +33,7 @@ export function registerBillUpdate(server: McpServer, config: Config): void {
 				...fields,
 				contact: optionalRef(config.api, 'contacts', contact),
 				bill_items: billItemsBody(config.api, bill_items),
-				attachment: attachment && await buildAttachment(attachment),
+				attachment: attachment && await buildAttachment(attachment, config.files),
 				...extra_fields,
 			});
 			await config.api.put(url, {bill});

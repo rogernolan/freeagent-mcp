@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import type {FreeAgentApi} from '../utils/freeagent-api.js';
+import type {Config} from './types.js';
 import {buildAttachment, compact, optionalRef} from '../utils/tools.js';
 import {
 	attachment, date, money, ref, salesTaxStatus,
@@ -29,7 +29,7 @@ type ExpenseInput = {
 	extra_fields?: Record<string, unknown> | undefined;
 };
 
-export async function expenseBody(api: FreeAgentApi, {
+export async function expenseBody({api, files}: Config, {
 	user, category, project, attachment: file, extra_fields, ...fields
 }: ExpenseInput) {
 	return compact({
@@ -37,7 +37,7 @@ export async function expenseBody(api: FreeAgentApi, {
 		user: optionalRef(api, 'users', user),
 		category: optionalRef(api, 'categories', category),
 		project: optionalRef(api, 'projects', project),
-		attachment: file && await buildAttachment(file),
+		attachment: file && await buildAttachment(file, files),
 		...extra_fields,
 	});
 }

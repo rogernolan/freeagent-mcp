@@ -86,6 +86,29 @@ describe('FreeAgentApi', () => {
 			expect(() => api.resourceUrl('contacts', `${baseUrl}/invoices/1`)).toThrow();
 			expect(() => api.resourceUrl('contacts', '../users/me')).toThrow();
 		});
+
+		it('rejects dot segments that would resolve into another collection', () => {
+			expect(() => api.resourceUrl('attachments', `${baseUrl}/attachments/../invoices/5`)).toThrow();
+			expect(() => api.resourceUrl('attachments', `${baseUrl}/attachments/%2e%2e/invoices/5`)).toThrow();
+			expect(() => api.resourceUrl('attachments', `${baseUrl}/attachments/./5`)).toThrow();
+			expect(() => api.resourceUrl('invoices', '..')).toThrow();
+			expect(() => api.resourceUrl('invoices', '.')).toThrow();
+		});
+
+		it('rejects extra path, query and empty IDs in URLs', () => {
+			expect(() => api.resourceUrl('invoices', `${baseUrl}/invoices/5/send_email`)).toThrow();
+			expect(() => api.resourceUrl('invoices', `${baseUrl}/invoices/5?x=1`)).toThrow();
+			expect(() => api.resourceUrl('invoices', `${baseUrl}/invoices/`)).toThrow();
+			expect(() => api.resourceUrl('invoices', '')).toThrow();
+		});
+	});
+
+	it('refuses to send requests outside the API base path', async () => {
+		const {api, fetchFn} = setup();
+
+		await expect(api.get('/../../other')).rejects.toThrow('outside the FreeAgent API');
+		await expect(api.get('@evil.example/x')).rejects.toThrow('outside the FreeAgent API');
+		expect(fetchFn).not.toHaveBeenCalled();
 	});
 });
 
