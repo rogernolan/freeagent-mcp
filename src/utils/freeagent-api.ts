@@ -73,8 +73,8 @@ export class FreeAgentApi {
 		return this.request<T>('GET', path, query === undefined ? {} : {query});
 	}
 
-	async post<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
-		return this.request<T>('POST', path, {body});
+	async post<T>(path: string, body?: unknown, headers?: Record<string, string>): Promise<ApiResponse<T>> {
+		return this.request<T>('POST', path, headers === undefined ? {body} : {body, headers});
 	}
 
 	async put<T>(path: string, body?: unknown): Promise<ApiResponse<T>> {
@@ -86,7 +86,7 @@ export class FreeAgentApi {
 	}
 
 	/** `path` is relative to the base URL (e.g. '/invoices'), or a full resource URL from resourceUrl() */
-	async request<T>(method: HttpMethod, path: string, options: {query?: Query; body?: unknown} = {}): Promise<ApiResponse<T>> {
+	async request<T>(method: HttpMethod, path: string, options: {query?: Query; body?: unknown; headers?: Record<string, string>} = {}): Promise<ApiResponse<T>> {
 		const url = new URL(path.startsWith(`${this.baseUrl}/`) ? path : `${this.baseUrl}${path}`);
 		const base = new URL(this.baseUrl);
 		if (url.origin !== base.origin || !url.pathname.startsWith(`${base.pathname.replace(/\/+$/, '')}/`)) {
@@ -99,17 +99,17 @@ export class FreeAgentApi {
 			}
 		}
 
-		let response = await this.send(method, url, options.body, await this.options.tokens.getAccessToken());
+		let response = await this.send(method, url, options, await this.options.tokens.getAccessToken());
 
 		if (response.status === 401) {
-			response = await this.send(method, url, options.body, await this.options.tokens.refreshAccessToken());
+			response = await this.send(method, url, options, await this.options.tokens.refreshAccessToken());
 		}
 
 		if (response.status === 429) {
 			const retryAfter = Number(response.headers.get('retry-after') ?? '');
 			if (Number.isFinite(retryAfter) && retryAfter <= MAX_RETRY_AFTER_SECONDS) {
 				await this.sleep(Math.max(retryAfter, 1) * 1000);
-				response = await this.send(method, url, options.body, await this.options.tokens.getAccessToken());
+				response = await this.send(method, url, options, await this.options.tokens.getAccessToken());
 			}
 		}
 
@@ -121,10 +121,11 @@ export class FreeAgentApi {
 		return {data: parseBody(text) as T, headers: response.headers};
 	}
 
-	private async send(method: HttpMethod, url: URL, body: unknown, accessToken: string): Promise<Response> {
+	private async send(method: HttpMethod, url: URL, {body, headers}: {body?: unknown; headers?: Record<string, string>}, accessToken: string): Promise<Response> {
 		return this.fetchFn(url, {
 			method,
 			headers: {
+				...headers,
 				Authorization: `Bearer ${accessToken}`,
 				Accept: 'application/json',
 				'User-Agent': this.options.userAgent,

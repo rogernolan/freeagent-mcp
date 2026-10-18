@@ -23,7 +23,7 @@ Some things to know about the tools:
 - **Expense signs:** `gross_value` on expenses is **negative** when the claimant paid.
 - **Explanation signs:** `gross_value` on bank explanations has the same sign as the bank transaction.
 - **Other fields:** create and update tools accept an `extra_fields` object for less common FreeAgent attributes; see the [API docs](https://dev.freeagent.com/docs/index).
-- **Attachments:** expenses, bills and bank transaction explanations take an `attachment` (a receipt or invoice). Use `bank_transaction_explanation_update` to attach a receipt to a transaction that's already explained. Attachments must really be a PDF, PNG, JPEG or GIF.
+- **Attachments:** expenses, bills and bank transaction explanations take an `attachment` (a receipt or invoice). Use `bank_transaction_explanation_update` to add a receipt to a transaction that's already explained. Explanation receipts go through FreeAgent's attachments endpoint (API version `2026-09-01`), which replaces the inline `attachment` field from 1 December 2026. If the explanation saves but the upload fails, the error says so. Attachments must really be a PDF, PNG, JPEG or GIF.
 
 ### Which tools are enabled
 

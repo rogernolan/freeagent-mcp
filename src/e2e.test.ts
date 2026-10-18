@@ -227,9 +227,22 @@ describe('MCP server with default settings', () => {
 		expect(fetchFn).not.toHaveBeenCalled();
 	});
 
-	test('attaches a receipt from an allowed folder to an existing explanation', async () => {
+	const attachmentBody = {attachments: [{data: pdf.toString('base64'), file_name: 'train.pdf', content_type: 'application/x-pdf'}]};
+	const savedAttachments = {attachments: [{url: `${baseUrl}/attachments/8`, file_name: 'train.pdf'}]};
+
+	function call(n: number) {
+		const [url, init] = fetchFn.mock.calls[n]!;
+		return {
+			url: (url as URL).href,
+			method: init?.method,
+			version: (init?.headers as Record<string, string>)['X-Api-Version'],
+			body: init?.body ? JSON.parse(init.body as string) as unknown : undefined,
+		};
+	}
+
+	test('adds a receipt to an existing explanation through the attachments endpoint', async () => {
 		fetchFn
-			.mockResolvedValueOnce(new Response(''))
+			.mockResolvedValueOnce(json(savedAttachments))
 			.mockResolvedValueOnce(json({bank_transaction_explanation: {url: `${baseUrl}/bank_transaction_explanations/3`}}));
 
 		const result = await client.callTool({
@@ -238,13 +251,49 @@ describe('MCP server with default settings', () => {
 		});
 
 		expect(result.isError).toBeFalsy();
-		const [url, init] = fetchFn.mock.calls[0]!;
-		expect((url as URL).href).toBe(`${baseUrl}/bank_transaction_explanations/3`);
-		expect(JSON.parse(init!.body as string)).toEqual({
-			bank_transaction_explanation: {
-				attachment: {data: pdf.toString('base64'), file_name: 'train.pdf', content_type: 'application/x-pdf'},
-			},
+		// No PUT when only an attachment is given
+		expect(call(0)).toEqual({
+			url: `${baseUrl}/bank_transaction_explanations/3/attachments`, method: 'POST', version: '2026-09-01', body: attachmentBody,
 		});
+		expect(call(1)).toMatchObject({url: `${baseUrl}/bank_transaction_explanations/3`, method: 'GET', version: undefined});
+		expect(result.structuredContent).toEqual({url: `${baseUrl}/bank_transaction_explanations/3`, ...savedAttachments});
+	});
+
+	test('creates an explanation, then attaches the receipt', async () => {
+		fetchFn
+			.mockResolvedValueOnce(json({bank_transaction_explanation: {url: `${baseUrl}/bank_transaction_explanations/4`}}))
+			.mockResolvedValueOnce(json(savedAttachments));
+
+		const result = await client.callTool({
+			name: 'bank_transaction_explanation_create',
+			arguments: {bank_transaction: '77', category: '285', attachment: {file_path: join(dir, 'receipts', 'train.pdf')}},
+		});
+
+		expect(result.isError).toBeFalsy();
+		expect(call(0)).toEqual({
+			url: `${baseUrl}/bank_transaction_explanations`,
+			method: 'POST',
+			version: undefined,
+			body: {bank_transaction_explanation: {bank_transaction: `${baseUrl}/bank_transactions/77`, category: `${baseUrl}/categories/285`}},
+		});
+		expect(call(1)).toMatchObject({url: `${baseUrl}/bank_transaction_explanations/4/attachments`, version: '2026-09-01', body: attachmentBody});
+		expect(result.structuredContent).toEqual({url: `${baseUrl}/bank_transaction_explanations/4`, ...savedAttachments});
+	});
+
+	test('says the explanation was saved when attaching fails', async () => {
+		fetchFn
+			.mockResolvedValueOnce(json({bank_transaction_explanation: {url: `${baseUrl}/bank_transaction_explanations/4`}}))
+			.mockResolvedValueOnce(new Response('{"errors":{"error":{"message":"Too many attachments"}}}', {status: 422}));
+
+		const result = await client.callTool({
+			name: 'bank_transaction_explanation_create',
+			arguments: {bank_transaction: '77', category: '285', attachment: {file_path: join(dir, 'receipts', 'train.pdf')}},
+		});
+
+		expect(result.isError).toBe(true);
+		const text = JSON.stringify(result.content);
+		expect(text).toContain('bank_transaction_explanations/4 was saved');
+		expect(text).toContain('Too many attachments');
 	});
 
 	test('will not upload files outside the attachment folders', async () => {
